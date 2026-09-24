@@ -438,8 +438,8 @@ clar(p,pr){const c=pr.clar;
  <div class="fld">${F('Cor inicial',SEL('data-cl="ini"',c.ini))}${F('Meta combinada',SEL('data-cl="alvo"',c.alvo))}${F('Técnica',`<select data-cl="tec">${['Consultório','Caseiro (moldeira)','Associado'].map(x=>`<option ${x===c.tec?'selected':''}>${x}</option>`).join('')}</select>`)}${F('Agente',I('ag'))}${F('Concentração',I('conc'))}${F('Barreira gengival',I('barr'))}</div></div>
  <div class="card" style="margin-top:18px"><div style="display:flex;justify-content:space-between;align-items:center"><h3>Sessões</h3><button class="btn s l" data-p="csadd">+ Sessão</button></div><div style="overflow:auto"><table class="tbl" style="min-width:640px;margin-top:8px"><tr><th>#</th><th>Data</th><th>Cor após</th><th>Sensibilidade</th><th>Observações</th></tr>
  ${c.sess.map((x,i)=>`<tr><td>${i+1}</td><td><input data-cs="${i}.d" value="${esc(x.d)}"></td><td>${SEL(`data-cs="${i}.cor"`,x.cor)}</td><td style="white-space:nowrap"><input type="range" min="0" max="10" data-cs="${i}.sens" value="${x.sens}" style="width:110px;vertical-align:middle;padding:0"> <b>${x.sens}/10</b></td><td><input data-cs="${i}.obs" value="${esc(x.obs)}"></td></tr>`).join('')||'<tr><td colspan="5" style="color:var(--mute)">Nenhuma sessão ainda.</td></tr>'}</table></div></div>`},
-docs(p,pr){return `<div class="two"><div class="card"><h2 style="margin-bottom:8px">Termos e consentimentos</h2><table>${pr.docs.map((d,i)=>`<tr><td>${d.n}</td><td style="text-align:right">${d.s==='ok'?`<span class="pill" style="background:var(--ok);margin:0">Assinado ${d.dt}</span>`:d.s==='env'?`<span class="pill" style="background:var(--warn);margin:0">Aguardando assinatura</span>`:`<button class="btn s l" data-p="tsend" data-v="${i}">Enviar para assinar</button>`}</td></tr>`).join('')}</table>
- <h3 style="margin-top:22px">Emitir</h3><div class="acts">${['Receituário','Atestado','Declaração de comparecimento'].map(x=>`<button class="btn s l" data-p="emit" data-v="${x}">${x}</button>`).join('')}</div><p class="sig">A receita abre a Prescrição Eletrônica oficial do CFO (gratuita, exige certificado ICP-Brasil). Assinatura integrada ao sistema na fase 2.</p></div>
+docs(p,pr){return `<div class="two"><div class="card"><h2 style="margin-bottom:8px">Termos e consentimentos</h2><table>${pr.docs.map((d,i)=>`<tr><td>${d.n}</td><td style="text-align:right">${d.s==='ok'?`<span class="pill" style="background:var(--ok);margin:0">Assinado ${d.dt}</span>`:d.s==='imp'?`<span class="pill" style="background:var(--mute);margin:0">Impresso ${d.dt}</span>`:d.s==='env'?`<span class="pill" style="background:var(--warn);margin:0">Aguardando assinatura</span>`:`<button class="btn s l" data-p="tsend" data-v="${i}">Enviar para assinar</button>`}</td></tr>`).join('')}</table>
+ <h3 style="margin-top:22px">Emitir</h3><div class="acts">${['Receituário','Atestado','Declaração de comparecimento'].map(x=>`<button class="btn s l" data-p="emit" data-v="${x}">${x}</button>`).join('')}</div><p class="sig">Sai em papel timbrado para assinar e carimbar. A receita também pode ser emitida digitalmente na plataforma gratuita do CFO (exige certificado ICP-Brasil).</p></div>
  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h2>Radiografias e fotos</h2><label class="btn s" style="cursor:pointer">+ Anexar<input type="file" accept="image/*" id="upl" hidden multiple></label></div><div class="thumbs">${pr.anexos.map(a=>`<figure><img src="${a.src}" alt="${esc(a.n)}"><figcaption>${esc(a.n)} · ${a.dt}</figcaption></figure>`).join('')||'<p style="color:var(--mute)">Nenhum anexo.</p>'}</div></div></div>`}
 };
 V.pront=()=>{const p=P[pid],pr=PRt(),al=alerts(pr);
@@ -448,6 +448,51 @@ V.pront=()=>{const p=P[pid],pr=PRt(),al=alerts(pr);
  <div class="acts" style="margin:0"><button class="btn s l" data-a="chat" data-i="${pid}">Conversar</button><button class="btn s" data-a="novo" data-i="${pid}">Agendar</button></div></div>
  <div class="tabs">${PT.map(([k,n])=>`<button data-p="tab" data-v="${k}" class="${k===ptab?'on':''}">${n}</button>`).join('')}</div>${PV[ptab](p,pr)}`};
 
+const RXT={simples:['Receita simples',1],atb:['Receita de antibiótico',2],ce:['Receita de controle especial',2]};
+function emitDlg(v,p,pr){
+ const nm=p.n,rx=v==='Receituário';
+ const body=rx?'Uso oral\n\n1. ________________________ ____ mg\n   Tomar ___ comprimido(s) de ___ em ___ horas, por ___ dias.\n':v==='Atestado'?`Atesto, para os devidos fins, que ${nm} esteve sob meus cuidados profissionais nesta data, das ___h às ___h, em atendimento odontológico, devendo permanecer afastado(a) de suas atividades por ___ dia(s).`:`Declaro, para os devidos fins, que ${nm} compareceu a consulta odontológica nesta data, das ___h às ___h.`;
+ dlg(`<h2>${v}</h2><p style="color:var(--mute)">${esc(nm)} · ${hoje()}</p>
+ ${rx?`<label>Tipo de receita</label><select id="rxt">${Object.entries(RXT).map(([k,[n,vias]])=>`<option value="${k}">${n}${vias>1?' (2 vias)':''}</option>`).join('')}</select>
+ <label>Endereço do paciente</label><input id="rxe" placeholder="Obrigatório no controle especial">`:''}
+ <label>${rx?'Prescrição':'Texto'}</label><textarea id="doct" rows="7">${esc(body)}</textarea>
+ ${v==='Atestado'?'<label>CID (opcional, só com autorização do paciente)</label><input id="cid">':''}
+ <div class="acts"><button class="btn" id="docprint">Imprimir para assinar</button>${rx?'<button class="btn l" data-p="cfo">Emitir digital no CFO</button>':''}</div>
+ <p class="sig">Sai em papel timbrado, pronto para assinatura e carimbo.${rx?' Antibiótico e controle especial saem em 2 vias.':''}</p>`);
+ $('#docprint').onclick=()=>{const k=rx?$('#rxt').value:null,[tit,vias]=rx?RXT[k]:[v,1],end=rx?$('#rxe').value.trim():'';
+  if(k==='ce'&&!end)return toast('Informe o endereço do paciente');
+  if(!printDoc(tit,vias,nm,$('#doct').value,end,$('#cid')?.value.trim()||'',k))return;
+  pr.docs.push({n:tit,s:'imp',dt:hoje()});log(pr,'Imprimiu '+tit.toLowerCase());$('#dlg').close();render();toast('Documento gerado e registrado no prontuário')}}
+function printDoc(tit,vias,nm,txt,end,cid,k){
+ const logo=`<svg viewBox="72 0 116 142" width="44"><path d="M130 8l3 9 9 3-9 3-3 9-3-9-9-3 9-3z" fill="#b98b4e"/><path d="M78 138V92a52 52 0 0 1 104 0v46z" fill="none" stroke="#b98b4e" stroke-width="3.5"/><text x="130" y="128" text-anchor="middle" font-family="Cormorant Garamond,Georgia,serif" font-size="74" font-weight="600" letter-spacing="-10" fill="#b98b4e">A<tspan font-style="italic" font-weight="400" dx="-4">B</tspan></text></svg>`;
+ const END='Av. Desembargador Moreira, 2020, sala 1204 · Aldeota, Fortaleza/CE';
+ const page=i=>`<section class="pg">${vias>1?`<div class="via">${i===1?'1ª via · retenção da farmácia':'2ª via · paciente'}</div>`:''}
+ <header>${logo}<div><b>Dra. Ana Beatriz Bomfim</b><span>Cirurgiã-Dentista · CRO-CE 15107</span></div></header>
+ <h1>${tit}</h1>${k==='ce'?`<div class="box"><b>Emitente:</b> Dra. Ana Beatriz Bomfim · CRO-CE 15107 · ${END}</div>`:''}
+ <p class="pac"><b>Paciente:</b> ${esc(nm)}${end?`<br><b>Endereço:</b> ${esc(end)}`:''}</p>
+ <div class="txt">${esc(txt)}</div>${cid?`<p><b>CID:</b> ${esc(cid)}</p>`:''}
+ <div class="ass"><div class="ln"></div>Dra. Ana Beatriz Bomfim<br>Cirurgiã-Dentista · CRO-CE 15107</div>
+ <p class="dt">Fortaleza, ${new Date().toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'})}</p>
+ ${k==='ce'?`<div class="grid"><div class="box"><b>Identificação do comprador</b><br>Nome: ______________________<br>RG: ____________ Órgão: _____<br>Endereço: __________________<br>Telefone: __________________</div><div class="box"><b>Identificação do fornecedor</b><br><br><br>Assinatura do farmacêutico<br>Data: ___/___/______</div></div>`:''}
+ <footer>${END} · (85) 9 0000-0000</footer></section>`;
+ const w=window.open('','_blank');if(!w){toast('Permita pop-ups para imprimir');return false}
+ w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${tit} · ${esc(nm)}</title><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;1,400&family=Manrope:wght@400;700&display=swap" rel="stylesheet"><style>
+ @page{size:A5;margin:0}*{box-sizing:border-box;margin:0}body{font:12px/1.6 Manrope,sans-serif;color:#2a1e17;background:#e9e4dc}
+ .pg{width:148mm;min-height:210mm;padding:14mm 13mm 10mm;margin:12px auto;background:#fff;position:relative;display:flex;flex-direction:column;break-after:page}
+ .pg:last-child{break-after:auto}
+ header{display:flex;gap:12px;align-items:center;border-bottom:1.5px solid #b98b4e;padding-bottom:10px}
+ header b{font:600 19px 'Cormorant Garamond',serif;display:block}header span{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#8a7f76}
+ h1{font:600 20px 'Cormorant Garamond',serif;margin:18px 0 12px;text-align:center}
+ .pac{margin-bottom:14px}.txt{white-space:pre-wrap;flex:1;font-size:12.5px}
+ .ass{text-align:center;margin-top:30px;font-size:11px}.ass .ln{width:60%;margin:0 auto 6px;border-top:1px solid #2a1e17}
+ .dt{text-align:center;font-size:11px;color:#8a7f76;margin-top:8px}
+ .via{position:absolute;top:5mm;right:13mm;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:#b98b4e}
+ .box{border:1px solid #ccc;border-radius:4px;padding:6px 8px;font-size:9.5px;line-height:1.7;margin-bottom:8px}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.grid .box{margin:0}
+ footer{border-top:1px solid #e9d8a6;margin-top:14px;padding-top:6px;text-align:center;font-size:8.5px;color:#8a7f76}
+ @media print{body{background:#fff}.pg{margin:0}}
+ </style></head><body>${Array.from({length:vias},(_,i)=>page(i+1)).join('')}<script>document.fonts.ready.then(()=>setTimeout(print,300))<\/script></body></html>`);
+ w.document.close();return true}
 document.addEventListener('click',e=>{
  const tg=e.target.closest('#odoMain .tooth');
  if(tg){const n=+tg.dataset.t;
@@ -478,8 +523,8 @@ document.addEventListener('click',e=>{
   pr.evo.unshift({dt:hoje(),dente:n,proc:`${it.desc} · dente ${n}`,txt:'Procedimento concluído conforme plano de tratamento.'});log(pr,'Concluiu '+it.desc+' no dente '+n);toast('Concluído e registrado na evolução')}
  else if(a==='tsend'){const d=pr.docs[v];d.s='env';say(pid,'bot',`Olá, ${p.n.split(' ')[0]}! Segue o documento "${d.n}" para leitura e assinatura digital: [link]`);toast('Enviado para assinatura pelo WhatsApp');
   setTimeout(()=>{d.s='ok';d.dt=hoje();log(pr,'Paciente assinou '+d.n);toast(p.n.split(' ')[0]+' assinou o documento ✔');if(view==='pront')render()},2500)}
- else if(a==='emit'&&v==='Receituário'){window.open('https://prescricao.cfo.org.br/login','_blank','noopener');log(pr,'Abriu a Prescrição Eletrônica do CFO');return toast('Abrindo a Prescrição Eletrônica do CFO')}
- else if(a==='emit'){return dlg(`<h2>${v}</h2><p style="color:var(--mute)">${p.n} · ${hoje()}</p><textarea rows="6" style="margin-top:12px">${v==='Receituário'?'Uso interno\n\n1. ':v==='Atestado'?`Atesto para os devidos fins que ${p.n} esteve em atendimento odontológico nesta data, das __h às __h, necessitando de __ dia(s) de repouso.`:`Declaro que ${p.n} compareceu a consulta odontológica nesta data.`}</textarea><p class="sig">Dra. Ana Beatriz Bomfim · CRO-CE 15107. Assinatura digital ICP-Brasil e envio pelo WhatsApp na fase 2.</p><div class="acts"><button class="btn" onclick="$('#dlg').close();toast('Documento salvo no prontuário')">Salvar no prontuário</button></div>`)}
+ else if(a==='emit')return emitDlg(v,p,pr);
+ else if(a==='cfo'){window.open('https://prescricao.cfo.org.br/login','_blank','noopener');log(pr,'Abriu a Prescrição Eletrônica do CFO');return toast('Abrindo a Prescrição Eletrônica do CFO')}
  else return;
  render()});
 document.addEventListener('input',e=>{const el=e.target;if(view!=='pront'||!PR[pid])return;const pr=PR[pid],val=el.type==='checkbox'?el.checked:el.value;
