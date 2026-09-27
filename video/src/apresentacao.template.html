@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proposta AURA · Dra. Ana Beatriz Bomfim</title>
+<style>
+body{margin:0;background:#1d1510;color:#f6eee3;font:15px system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:16px;padding:24px 16px;min-height:100vh;box-sizing:border-box}
+h1{font:600 22px Georgia,serif;margin:0;color:#e9d8a6}
+canvas{width:min(100%,1280px);aspect-ratio:16/9;border-radius:12px;box-shadow:0 30px 80px #000a;background:#000}
+input[type=range]{width:min(100%,1280px);accent-color:#b98b4e}
+.bar{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+button{font:700 16px system-ui,sans-serif;border:0;border-radius:99px;padding:14px 26px;cursor:pointer;background:#e9d8a6;color:#3b2a20}
+button.s{background:transparent;color:#e9d8a6;border:1.5px solid #e9d8a655}
+button:disabled{opacity:.5;cursor:wait}
+#st{opacity:.85;min-height:20px;text-align:center;max-width:720px}
+</style>
+</head>
+<body>
+<h1>Proposta AURA Digital Studio · Dra. Ana Beatriz Bomfim</h1>
+<canvas id="c" width="1920" height="1080"></canvas>
+<input id="seek" type="range" min="0" max="60" step="0.01" value="0" aria-label="Linha do tempo">
+<div class="bar"><button id="play" class="s" disabled>▶ Assistir com som</button><button id="rec" disabled>⬇ Baixar MP4</button></div>
+<div id="st">Carregando…</div>
+<script>
+// ================= DADOS EMBUTIDOS =================
+const FONTS={corm:'data:font/woff2;base64,{{F_CORM}}',cormi:'data:font/woff2;base64,{{F_CORMI}}',man:'data:font/woff2;base64,{{F_MAN}}',cav:'data:font/woff2;base64,{{F_CAV}}'};
+const PH={sobre:'{{I_SOBRE}}',cirurgia:'{{I_CIRURGIA}}',consultorio:'{{I_CONSULTORIO}}',hero:'{{I_HERO}}',clareamento:'{{I_CLAREAMENTO}}',radiografia:'{{I_RADIOGRAFIA}}',prevencao:'{{I_PREVENCAO}}',aura:'{{I_AURA}}'};
+
+// ================= BASE =================
+const W=1920,H=1080,DUR=60,FPS=30,BEAT=.5;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const C={cream:'#f6eee3',sand:'#ecdcc4',mustard:'#e9d8a6',gold:'#b98b4e',choc:'#3b2a20',wood:'#8a5a34',blush:'#e9c9bd',ink:'#2a1e17',paper:'#fffaf3',red:'#b5473f',blue:'#2f5d8a',ok:'#3f8a5f',warn:'#c48a2c',mute:'#8a7f76',wa:'#25d366'};
+const IMG={};
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t,P=(t,a,b)=>clamp((t-a)/(b-a));
+const eOut=x=>1-Math.pow(1-x,3),eIO=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2,eBack=x=>{const c=1.9;return 1+(c+1)*Math.pow(x-1,3)+c*Math.pow(x-1,2)};
+const bell=(t,c,w)=>Math.exp(-Math.pow((t-c)/w,2));
+const hex=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
+const rgba=(h,a)=>`rgba(${hex(h)},${a})`;
+const mix=(a,b,t)=>`rgb(${hex(a).map((v,i)=>Math.round(lerp(v,hex(b)[i],t)))})`;
+const vis=(t,a,b,fi=.5,fo=.5)=>Math.min(eOut(P(t,a,a+fi)),1-eIO(P(t,b-fo,b)));
+const beatP=t=>Math.exp(-((t/BEAT)%1)*6);
+const rng=s=>()=>(s=(s*16807)%2147483647)/2147483647;
+const norm=s=>s.toLowerCase().replace(/[^\p{L}\d]/gu,'');
+
+// logo original (mesmo SVG do site), com as fontes embutidas
+const logoSVG=col=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 200" width="1040" height="800" style="color:${col}"><style>@font-face{font-family:'Cormorant Garamond';font-weight:300 700;src:url(${FONTS.corm})}@font-face{font-family:'Cormorant Garamond';font-style:italic;font-weight:300 700;src:url(${FONTS.cormi})}@font-face{font-family:Manrope;font-weight:200 800;src:url(${FONTS.man})}</style>
+<path d="M130 8l3 9 9 3-9 3-3 9-3-9-9-3 9-3z" fill="currentColor"/>
+<path d="M76 138V92a54 54 0 0 1 108 0v46z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<path d="M87 138V94a43 43 0 0 1 86 0v44" fill="none" stroke="currentColor" stroke-width=".7" opacity=".6"/>
+<text x="130" y="128" text-anchor="middle" font-family="Cormorant Garamond,serif" font-size="74" font-weight="600" letter-spacing="-10" fill="currentColor">A<tspan font-style="italic" font-weight="400" dx="-4">B</tspan></text>
+<text x="130" y="163" text-anchor="middle" font-family="Manrope,sans-serif" font-size="11" font-weight="500" letter-spacing="2.6" fill="currentColor">DRA. ANA BEATRIZ BOMFIM</text>
+<text x="130" y="181" text-anchor="middle" font-family="Manrope,sans-serif" font-size="8" letter-spacing="4" fill="currentColor" opacity=".8">CIRURGIÃ-DENTISTA</text></svg>`;
+
+let GRAIN=[],LIGHTS=[],DUST=[];
+const ready=(async()=>{
+ for(const [f,u,d] of [['Cormorant Garamond',FONTS.corm,{weight:'300 700'}],['Cormorant Garamond',FONTS.cormi,{weight:'300 700',style:'italic'}],['Manrope',FONTS.man,{weight:'200 800'}],['Caveat',FONTS.cav,{weight:'400 700'}]]){const ff=new FontFace(f,`url(${u})`,d);await ff.load();document.fonts.add(ff)}
+ const ld=src=>new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=j;i.src=src});
+ for(const k in PH)IMG[k]=await ld(PH[k]);
+ // a logo vira imagem; espera as fontes internas do SVG e rasteriza num canvas
+ for(const [k,col] of [['logoGold',C.gold],['logoMus',C.mustard],['logoWhite','#ffffff']]){
+  const im=await ld('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(logoSVG(col)));await new Promise(r=>setTimeout(r,250));
+  const c=document.createElement('canvas');c.width=1040;c.height=800;c.getContext('2d').drawImage(im,0,0);IMG[k]=c}
+ const R=rng(42);
+ for(let n=0;n<3;n++){const c=document.createElement('canvas');c.width=c.height=400;const g=c.getContext('2d'),d=g.createImageData(400,400);for(let i=0;i<d.data.length;i+=4){const v=R()*255;d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=255}g.putImageData(d,0,0);GRAIN.push(ctx.createPattern(c,'repeat'))}
+ const cols=[C.gold,C.mustard,C.blush,'#ffffff',C.gold];
+ for(let i=0;i<14;i++)LIGHTS.push({x:R()*W,y:R()*H,r:160+R()*300,c:cols[i%5],a:.10+R()*.16,sp:.12+R()*.25,ph:R()*6});
+ for(let i=0;i<55;i++)DUST.push({x:R()*W,y:R()*H,s:1.2+R()*2.6,v:8+R()*26,ph:R()*6});
+})();
+
+// ================= FORMAS DA LINHA DOURADA =================
+const N=260;
+function resample(pts,closed){const Q=closed?[...pts,pts[0]]:pts,d=[0];for(let i=1;i<Q.length;i++)d.push(d[i-1]+Math.hypot(Q[i][0]-Q[i-1][0],Q[i][1]-Q[i-1][1]));const L=d.at(-1),o=[];let j=0;for(let k=0;k<N;k++){const s=L*k/(N-1);while(j<d.length-2&&d[j+1]<s)j++;const u=(s-d[j])/((d[j+1]-d[j])||1);o.push([lerp(Q[j][0],Q[j+1][0],u),lerp(Q[j][1],Q[j+1][1],u)])}return o}
+function archPts(x,y,w,h){const r=w/2,p=[[x,y+h]];for(let i=0;i<=48;i++){const a=Math.PI+Math.PI*i/48;p.push([x+r+r*Math.cos(a),y+r+r*Math.sin(a)])}p.push([x+w,y+h]);return p}
+function rrPts(x,y,w,h,r){const p=[],q=(cx,cy,a0)=>{for(let i=0;i<=10;i++){const a=a0+Math.PI/2*i/10;p.push([cx+r*Math.cos(a),cy+r*Math.sin(a)])}};p.push([x,y+h-r]);q(x+r,y+r,Math.PI);q(x+w-r,y+r,-Math.PI/2);q(x+w-r,y+h-r,0);q(x+r,y+h-r,Math.PI/2);return p}
+const PX=1100,PY=150,PW=520,PHh=780;               // foto em arco (cena 2)
+const BX=700,BY=150,BW=1060,BH=780,TB=56;           // janela do navegador (cenas 4 e 5)
+const LW=440,LS=LW/260,LX=(W-LW)/2,LY=100;          // logo final
+const SH={
+ line:resample(Array.from({length:80},(_,i)=>[260+i*1400/79,800+Math.sin(i*.3)*7]),false),
+ arch:resample(archPts(PX-26,PY-26,PW+52,PHh+52),true),
+ under:resample(Array.from({length:40},(_,i)=>[640+i*640/39,690+Math.sin(i*.4)*4]),false),
+ brw:resample(rrPts(BX,BY,BW,BH,28),true),
+ logo:resample(archPts(LX+76*LS,LY+38*LS,108*LS,100*LS),true)};
+
+// ================= AJUDANTES DE DESENHO =================
+function cover(img,x,y,w,h,fx=.5,fy=.5,z=1){const iw=img.width,ih=img.height,s=Math.max(w/iw,h/ih)*z,sw=w/s,sh=h/s;ctx.drawImage(img,clamp(fx*iw-sw/2,0,iw-sw),clamp(fy*ih-sh/2,0,ih-sh),sw,sh,x,y,w,h)}
+function archPath(x,y,w,h){ctx.beginPath();ctx.moveTo(x,y+h);ctx.lineTo(x,y+w/2);ctx.arc(x+w/2,y+w/2,w/2,Math.PI,0);ctx.lineTo(x+w,y+h);ctx.closePath()}
+function txt(s,x,y,font,col,align='left',a=1,ls='0px'){ctx.save();ctx.globalAlpha*=a;ctx.font=font;ctx.fillStyle=col;ctx.textAlign=align;ctx.letterSpacing=ls;ctx.textBaseline='alphabetic';ctx.fillText(s,x,y);ctx.restore()}
+function wrap(s,font,maxW){ctx.font=font;const out=[];let cur='';s.split(' ').forEach(w=>{const n=cur?cur+' '+w:w;if(ctx.measureText(n).width>maxW&&cur){out.push(cur);cur=w}else cur=n});out.push(cur);return out}
+
+// texto palavra por palavra, com máscara, e palavra principal em destaque
+const LC=new Map();
+function layout(text,font,hiFont,size,maxW,hi){const k=[text,font,size,maxW].join('|');if(LC.has(k))return LC.get(k);const lines=[];let cur=[],w=0;const sp=size*.27;
+ text.split(' ').forEach(word=>{const isHi=hi.some(h=>norm(h)===norm(word));ctx.font=(isHi?hiFont:font).replace('{s}',size);const ww=ctx.measureText(word).width;if(cur.length&&w+sp+ww>maxW){lines.push({ws:cur,w});cur=[];w=0}w+=(cur.length?sp:0)+ww;cur.push({word,ww,isHi})});lines.push({ws:cur,w});LC.set(k,lines);return lines}
+function words(t,o){const {text,x,y,t0,t1=999,size=64,font='600 {s}px "Cormorant Garamond"',hiFont='italic 600 {s}px "Cormorant Garamond"',color=C.ink,hi=[],align='left',maxW=1600,lh=1.12,st=.085,dur=.75,under=true}=o;
+ const lines=layout(text,font,hiFont,size,maxW,hi);if(t<t0||t>t1+1.4)return lines.length;let idx=0;const sp=size*.27;
+ lines.forEach((ln,li)=>{const ly=y+li*size*lh;let lx=align==='center'?x-ln.w/2:x;
+  ln.ws.forEach(wd=>{const i=idx++,a0=t0+i*st,p=eOut(P(t,a0,a0+dur)),q=eIO(P(t,t1+i*.02,t1+i*.02+.55));
+   if(p>0&&q<1){ctx.save();ctx.beginPath();ctx.rect(lx-size*.25,ly-size*1.02,wd.ww+size*.5,size*1.34);ctx.clip();
+    ctx.globalAlpha*=Math.min(1,p*1.5)*(1-q);ctx.font=(wd.isHi?hiFont:font).replace('{s}',size);ctx.textBaseline='alphabetic';
+    const dy=(1-p)*size*1.05-q*size*1.05;
+    if(wd.isHi){const off=(t*260)%(wd.ww*3)-wd.ww,g=ctx.createLinearGradient(lx+off-wd.ww,0,lx+off+wd.ww,0);g.addColorStop(0,C.gold);g.addColorStop(.5,'#f0d596');g.addColorStop(1,C.gold);ctx.fillStyle=g;ctx.shadowColor=rgba(C.gold,.5);ctx.shadowBlur=26*p}else ctx.fillStyle=color;
+    ctx.fillText(wd.word,lx,ly+dy);ctx.restore();
+    if(wd.isHi&&under){const u=eOut(P(t,a0+.35,a0+1));ctx.save();ctx.globalAlpha*=1-q;ctx.strokeStyle=C.gold;ctx.lineWidth=Math.max(2,size*.035);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(lx,ly+size*.17);ctx.lineTo(lx+wd.ww*u,ly+size*.17);ctx.stroke();ctx.restore()}}
+   lx+=wd.ww+sp})});return lines.length}
+function chips(t,list,x,y,t1){let cx=x;ctx.font='600 30px Manrope';list.forEach(([label,t0])=>{const w=ctx.measureText(label).width+60,p=P(t,t0,t0+.5),q=eIO(P(t,t1,t1+.4));if(p>0&&q<1){const s=eBack(p);ctx.save();ctx.translate(cx+w/2,y);ctx.scale(s,s);ctx.globalAlpha*=Math.min(1,p*2)*(1-q);ctx.fillStyle='rgba(255,255,255,.6)';ctx.strokeStyle=C.gold;ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(-w/2,-32,w,64,32);ctx.fill();ctx.stroke();txt(label,0,11,'600 30px Manrope',C.ink,'center');ctx.restore()}cx+=w+16})}
+function spark(x,y,r,a){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,`rgba(255,250,235,${a})`);g.addColorStop(.25,`rgba(240,213,150,${a*.6})`);g.addColorStop(1,'rgba(185,139,78,0)');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2)}
+function star(x,y,r,a){ctx.save();ctx.globalAlpha*=a;ctx.fillStyle=C.gold;ctx.beginPath();for(let i=0;i<8;i++){const rr=i%2?r*.28:r,an=i*Math.PI/4-Math.PI/2;ctx.lineTo(x+rr*Math.cos(an),y+rr*Math.sin(an))}ctx.fill();ctx.restore()}
+function sparkles(t,x,y,t0,n=5,sp=90){for(let i=0;i<n;i++){const a=t0+i*.12,p=P(t,a,a+.8);if(p>0&&p<1){const an=i*2.4,d=sp*(.4+.6*eOut(p));star(x+Math.cos(an)*d,y+Math.sin(an)*d*.6,18*(1-p)+4,Math.sin(p*Math.PI))}}}
+function toast(t,msg,x,y,t0,t1,col=C.ok){const p=eOut(P(t,t0,t0+.4)),q=eIO(P(t,t1,t1+.35));if(p<=0||q>=1)return;ctx.save();ctx.globalAlpha*=p*(1-q);ctx.font='700 17px Manrope';const w=ctx.measureText(msg).width+48;ctx.translate(x,y+(1-p)*30);ctx.shadowColor='rgba(0,0,0,.25)';ctx.shadowBlur=24;ctx.fillStyle=C.choc;ctx.beginPath();ctx.roundRect(-w/2,-24,w,48,24);ctx.fill();ctx.shadowBlur=0;txt(msg,0,6,'700 17px Manrope',C.cream,'center');ctx.restore()}
+
+// ================= FUNDO =================
+function bg(t){const dk=eIO(P(t,54.8,56));
+ const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,mix(C.cream,'#2c1f17',dk));g.addColorStop(1,mix(C.sand,'#3b2a20',dk));ctx.fillStyle=g;ctx.fillRect(-60,-60,W+120,H+120);
+ ctx.fillStyle=rgba(C.wood,.045*(1-dk));for(let x=-((t*8)%64);x<W;x+=64)ctx.fillRect(x,-60,3,H+120);
+ const bp=beatP(t);
+ LIGHTS.forEach(L=>{const x=L.x+Math.sin(t*L.sp+L.ph)*90,y=L.y+Math.cos(t*L.sp*.8+L.ph)*70,r=L.r*(1+.05*bp),col=dk>.5?C.gold:L.c,a=L.a*(1+.35*bp)*(dk>.5?.7:1),gr=ctx.createRadialGradient(x,y,0,x,y,r);gr.addColorStop(0,rgba(col,a));gr.addColorStop(1,rgba(col,0));ctx.fillStyle=gr;ctx.fillRect(x-r,y-r,r*2,r*2)});
+ DUST.forEach(d=>{const y=((d.y-t*d.v)%(H+40)+H+40)%(H+40)-20,x=d.x+Math.sin(t*.7+d.ph)*20,a=(.22+.3*Math.sin(t*2.2+d.ph)+.3*bp)*(dk>.5?1.3:.8);ctx.fillStyle=rgba(dk>.5?C.mustard:C.gold,clamp(a));ctx.beginPath();ctx.arc(x,y,d.s,0,7);ctx.fill()})}
+
+// ================= LINHA DOURADA (acompanha o vídeo todo) =================
+const KEYS=[[0,'line'],[3.7,'line'],[4.6,'arch'],[13.8,'arch'],[14.7,'under'],[17.6,'under'],[18.5,'brw'],[54.5,'brw'],[55.8,'logo'],[60,'logo']];
+function linePts(t){for(let i=0;i<KEYS.length-1;i++){const [a,A]=KEYS[i],[b,B]=KEYS[i+1];if(t<=b){if(A===B)return SH[A];const e=eIO(P(t,a,b));return SH[A].map((p,k)=>[lerp(p[0],SH[B][k][0],e),lerp(p[1],SH[B][k][1],e)])}}return SH.logo}
+function goldLine(t){const pts=linePts(t),frac=eOut(P(t,.15,1.4)),a=1-eIO(P(t,55.9,56.8))*.85,n=Math.max(2,Math.floor(frac*N));
+ ctx.save();ctx.globalAlpha*=a;ctx.lineCap=ctx.lineJoin='round';
+ [[10,.12],[3,1]].forEach(([lw,al])=>{ctx.strokeStyle=rgba(C.gold,al);ctx.lineWidth=lw;ctx.shadowColor=rgba(C.gold,.6);ctx.shadowBlur=lw>5?0:14;ctx.beginPath();for(let i=0;i<n;i++)ctx[i?'lineTo':'moveTo'](...pts[i]);ctx.stroke()});
+ ctx.restore();
+ // faíscas que percorrem a linha
+ const bp=beatP(t);[0,.5].forEach(o=>{const k=Math.floor((((t*.18+o)%1)*frac)*(N-1));const [x,y]=pts[k];spark(x,y,26+10*bp,.95)});
+ if(frac<1){const [x,y]=pts[n-1];spark(x,y,46,1)}}
+
+// ================= TRANSIÇÕES =================
+function sweep(t,a,d){const p=P(t,a,a+d);if(p<=0||p>=1)return;const x=lerp(-700,W+700,eIO(p));ctx.save();ctx.globalCompositeOperation='lighter';const g=ctx.createLinearGradient(x-420,0,x+420,0);g.addColorStop(0,'rgba(255,240,210,0)');g.addColorStop(.5,'rgba(255,240,210,.55)');g.addColorStop(1,'rgba(255,240,210,0)');ctx.translate(x,H/2);ctx.rotate(-.25);ctx.translate(-x,-H/2);ctx.fillStyle=g;ctx.fillRect(x-420,-400,840,H+800);ctx.restore();
+ ctx.fillStyle=`rgba(255,250,238,${Math.sin(p*Math.PI)*.35})`;ctx.fillRect(-60,-60,W+120,H+120)}
+function liquid(t){const p=P(t,15.95,17.15);if(p<=0||p>=1)return;
+ const lead=lerp(H+140,-300,eIO(clamp(p*1.35))),trail=lerp(H+140,-300,eIO(clamp((p-.34)*1.35))),wv=(x,ph)=>Math.sin(x*.006+t*4+ph)*40+Math.sin(x*.017-t*3+ph)*16;
+ ctx.save();ctx.beginPath();for(let x=-40;x<=W+40;x+=24)ctx.lineTo(x,trail+wv(x,2));for(let x=W+40;x>=-40;x-=24)ctx.lineTo(x,lead+wv(x,0));ctx.closePath();
+ const g=ctx.createLinearGradient(0,lead-60,0,trail+60);g.addColorStop(0,'#f0d596');g.addColorStop(.45,C.gold);g.addColorStop(1,C.wood);ctx.fillStyle=g;ctx.fill();
+ ctx.strokeStyle='rgba(255,248,230,.7)';ctx.lineWidth=5;ctx.beginPath();for(let x=-40;x<=W+40;x+=24)ctx.lineTo(x,lead+wv(x,0)+6);ctx.stroke();
+ for(let i=0;i<14;i++){const bx=(i*151+t*60)%W,by=lerp(lead,trail,(i*.37)%1)+Math.sin(t*3+i)*20;ctx.fillStyle='rgba(255,248,230,.35)';ctx.beginPath();ctx.arc(bx,by,6+(i%4)*5,0,7);ctx.fill()}ctx.restore()}
+function camera(t){return 1+.012*Math.sin(t*.45)+.05*bell(t,4.15,.35)+.04*bell(t,14.2,.35)+.05*bell(t,16.6,.4)+.05*bell(t,18.1,.4)+.06*bell(t,31.9,.35)+.05*bell(t,55,.45)}
+
+// ================= CENA 1 · GANCHO =================
+function scene1(t){if(t>4.7)return;
+ words(t,{text:'Ana Beatriz,',x:W/2,y:430,t0:.25,t1:3.7,font:'italic 500 {s}px "Cormorant Garamond"',size:80,color:C.gold,align:'center'});
+ words(t,{text:'a sua história merece ser vista.',x:W/2,y:580,t0:.55,t1:3.75,size:112,align:'center',maxW:1250,hi:['vista.']});
+ sparkles(t,1150,660,1.55,6,110)}
+
+// ================= CENA 2 · TRAJETÓRIA =================
+const SHOTS=[['sobre',3.9,7.4,.6,.3],['cirurgia',7.4,10.8,.5,.3],['consultorio',10.8,14.6,.55,.28]];
+function scene2(t){if(t<3.8||t>14.9)return;
+ const rev=eOut(P(t,4.0,5.0)),ex=eIO(P(t,13.9,14.7));
+ ctx.save();ctx.globalAlpha*=rev*(1-ex);ctx.shadowColor='rgba(59,42,32,.35)';ctx.shadowBlur=70;ctx.shadowOffsetY=30;ctx.fillStyle=C.sand;archPath(PX,PY,PW,PHh);ctx.fill();ctx.restore();
+ ctx.save();archPath(PX,PY,PW,PHh);ctx.clip();ctx.beginPath();ctx.rect(PX,PY+PHh*(1-rev),PW,PHh*rev+1);ctx.clip();
+ SHOTS.forEach(([k,a,b,fx,fy],i)=>{if(t<a-.4||t>b+.5)return;const fin=i?eIO(P(t,a-.35,a+.35)):1;ctx.globalAlpha=(1-ex)*fin;cover(IMG[k],PX,PY,PW,PHh,fx,fy,1.14-.1*P(t,a-.4,b+.4)+ex*.2)});
+ [7.4,10.8].forEach(c=>{const f=bell(t,c,.2);if(f>.01){ctx.globalAlpha=f*.75;const g=ctx.createRadialGradient(PX+PW/2,PY+PHh*.4,0,PX+PW/2,PY+PHh*.4,PHh*.8);g.addColorStop(0,'#fffdf5');g.addColorStop(1,'rgba(255,250,235,0)');ctx.fillStyle=g;ctx.fillRect(PX,PY,PW,PHh)}});
+ ctx.globalAlpha=1-ex;const gg=ctx.createLinearGradient(0,PY+PHh*.6,0,PY+PHh);gg.addColorStop(0,'rgba(59,42,32,0)');gg.addColorStop(1,'rgba(59,42,32,.4)');ctx.fillStyle=gg;ctx.fillRect(PX,PY,PW,PHh);
+ ctx.globalAlpha=(1-ex)*.9*rev;ctx.drawImage(IMG.logoWhite,PX+PW-190,PY+PHh-165,170,131);ctx.restore();
+ // A · quem é
+ words(t,{text:'prazer,',x:180,y:330,t0:4.5,t1:7.1,font:'500 {s}px Caveat',size:60,color:C.gold});
+ words(t,{text:'Dra. Ana Beatriz Bomfim',x:180,y:455,t0:4.7,t1:7.15,size:104,maxW:800,hi:['Bomfim']});
+ words(t,{text:'CIRURGIÃ-DENTISTA · CRO-CE 15107',x:182,y:690,t0:5.7,t1:7.2,font:'600 {s}px Manrope',size:28,color:C.wood,st:.07});
+ // B · o que faz
+ words(t,{text:'Cuidado do primeiro check-up ao canal.',x:180,y:360,t0:7.5,t1:10.55,size:82,maxW:800,hi:['canal.']});
+ chips(t,[['Clínica geral',7.9],['Endodontia',8.3]],180,560,10.5);chips(t,[['Cirurgias',8.7],['Urgências',9.1]],180,650,10.55);
+ words(t,{text:'Do sorriso infantil ao adulto.',x:182,y:790,t0:9.3,t1:10.6,font:'italic 500 {s}px "Cormorant Garamond"',size:50,color:C.wood});
+ // C · quem acompanha
+ const cv_=vis(t,10.95,13.85,.4,.5);if(cv_>0){const n=Math.round(1597*eOut(P(t,11.0,12.4))),pop=1+.06*bell(t,12.45,.12);ctx.save();ctx.globalAlpha*=cv_;ctx.translate(180,560);ctx.scale(pop,pop);ctx.shadowColor=rgba(C.gold,.45);ctx.shadowBlur=30;txt(n.toLocaleString('pt-BR'),0,0,'600 230px "Cormorant Garamond"',C.gold);ctx.restore();sparkles(t,560,420,12.4,6,140)}
+ words(t,{text:'pessoas acompanham o seu trabalho.',x:180,y:680,t0:11.4,t1:13.7,size:62,maxW:800,hi:['seu']});
+ words(t,{text:'@dra.anabeatrizbomfim',x:182,y:850,t0:12.3,t1:13.75,font:'700 {s}px Manrope',size:28,color:C.gold})}
+
+// ================= CENA 3 · VIRADA =================
+function scene3(t){if(t<14.2||t>18.8)return;
+ words(t,{text:'Hoje, tudo isso vive em um lugar:',x:W/2,y:470,t0:14.4,t1:16.35,size:76,align:'center',maxW:1500,hi:['um']});
+ words(t,{text:'o Instagram.',x:W/2,y:630,t0:15.0,t1:16.4,size:124,align:'center',hi:['Instagram.']});
+ const z=eIO(P(t,17.8,18.5));ctx.save();ctx.translate(W/2,560);ctx.scale(1+z*.6,1+z*.6);ctx.translate(-W/2,-560);ctx.globalAlpha*=1-z;
+ words(t,{text:'E se fosse além?',x:W/2,y:620,t0:16.75,t1:999,size:170,align:'center',hi:['além?']});ctx.restore();
+ sparkles(t,1250,560,17.3,6,160)}
+
+// ================= CENA 4/5 · NAVEGADOR =================
+function browser(t){if(t<17.9||t>55.4)return;
+ const ap=eOut(P(t,18.1,19.0)),ex=eIO(P(t,54.3,55.2)),a=ap*(1-ex);if(a<=0)return;const s=lerp(.93,1,ap)*lerp(1,.88,ex);
+ ctx.save();ctx.globalAlpha*=a;ctx.translate(BX+BW/2,BY+BH/2);ctx.scale(s,s);ctx.translate(-(BX+BW/2),-(BY+BH/2));
+ ctx.save();ctx.shadowColor='rgba(59,42,32,.35)';ctx.shadowBlur=80;ctx.shadowOffsetY=34;ctx.fillStyle=C.paper;ctx.beginPath();ctx.roundRect(BX,BY,BW,BH,28);ctx.fill();ctx.restore();
+ ctx.save();ctx.beginPath();ctx.roundRect(BX,BY,BW,BH,28);ctx.clip();
+ ctx.fillStyle='#efe3d0';ctx.fillRect(BX,BY,BW,TB);['#e0a092','#e3c07e','#a9c49a'].forEach((c,i)=>{ctx.fillStyle=c;ctx.beginPath();ctx.arc(BX+32+i*24,BY+TB/2,7,0,7);ctx.fill()});
+ ctx.fillStyle=C.paper;ctx.beginPath();ctx.roundRect(BX+130,BY+12,BW-260,32,16);ctx.fill();
+ const app=t>32.1,url=app?'app.draanabeatrizbomfim.com.br':'draanabeatrizbomfim.com.br',tp=app?P(t,32.2,33.0):P(t,18.5,19.5);
+ txt('●',BX+150,BY+34,'12px Manrope',C.gold);txt(url.slice(0,Math.round(url.length*tp)),BX+170,BY+34,'600 15px Manrope',C.ink);
+ ctx.beginPath();ctx.rect(BX,BY+TB,BW,BH-TB);ctx.clip();ctx.translate(BX,BY+TB);
+ const sw=eIO(P(t,31.4,32.3));
+ if(sw<1){ctx.save();ctx.globalAlpha*=1-sw;ctx.translate(990,654);ctx.scale(1+sw*1.2,1+sw*1.2);ctx.translate(-990,-654);drawSite(t);ctx.restore()}
+ if(sw>0){ctx.save();ctx.globalAlpha*=sw;ctx.translate(530,362);ctx.scale(lerp(.9,1,sw),lerp(.9,1,sw));ctx.translate(-530,-362);drawApp(t);ctx.restore()}
+ const f=bell(t,31.9,.22);if(f>.02){const g=ctx.createRadialGradient(990,654,0,990,654,900);g.addColorStop(0,`rgba(255,252,240,${f})`);g.addColorStop(1,'rgba(255,252,240,0)');ctx.fillStyle=g;ctx.fillRect(0,0,BW,BH)}
+ ctx.restore();ctx.restore()}
+
+// ---- o site dentro do navegador ----
+function siteScroll(t){return 620*eIO(P(t,22.6,23.9))+460*eIO(P(t,24.6,25.8))+520*eIO(P(t,27.3,28.6))}
+function drawSite(t){const CW=BW,VH=BH-TB,sy=siteScroll(t),bp=beatP(t);
+ ctx.save();ctx.translate(0,-sy);
+ // hero
+ let g=ctx.createLinearGradient(0,0,CW,640);g.addColorStop(0,C.cream);g.addColorStop(1,C.sand);ctx.fillStyle=g;ctx.fillRect(0,0,CW,640);
+ ctx.fillStyle=rgba(C.wood,.06);for(let x=20;x<CW;x+=40)ctx.fillRect(x,0,2,640);
+ ctx.fillStyle=rgba(C.mustard,.55);ctx.beginPath();ctx.arc(-20,140,200,0,7);ctx.fill();ctx.fillStyle=rgba(C.blush,.55);ctx.beginPath();ctx.arc(560,560,120,0,7);ctx.fill();
+ txt('odontologia preventiva e restauradora',60,180,'500 26px Caveat',C.gold);
+ words(t,{text:'Um sorriso mais iluminado, sem abrir mão da naturalidade.',x:60,y:250,t0:18.9,size:58,maxW:560,hi:['sem','abrir','mão','da','naturalidade.'],under:false,st:.06});
+ txt('Clínica geral, endodontia, cirurgias e urgências.',62,510,'500 17px Manrope',C.ink,'left',vis(t,19.9,99));
+ txt('✦ Adultos e crianças     ✦ Aldeota, Fortaleza',62,555,'500 15px Manrope',C.wood,'left',vis(t,20.2,99));
+ const hr=eOut(P(t,19.2,20.3));ctx.save();ctx.shadowColor='rgba(59,42,32,.3)';ctx.shadowBlur=40;ctx.shadowOffsetY=18;ctx.globalAlpha*=hr;archPath(650,110,330,440);ctx.fillStyle=C.sand;ctx.fill();ctx.restore();
+ ctx.save();archPath(650,110,330,440);ctx.clip();ctx.beginPath();ctx.rect(650,110+440*(1-hr),330,440*hr+1);ctx.clip();cover(IMG.hero,650,110,330,440,.5,.25,1.15-.15*hr);ctx.drawImage(IMG.logoWhite,650+330-110,110+440-90,96,74);ctx.restore();
+ const by=440+Math.sin(t*2.4)*8;ctx.save();ctx.globalAlpha*=hr;ctx.shadowColor='rgba(0,0,0,.18)';ctx.shadowBlur=20;ctx.fillStyle='#fff';ctx.beginPath();ctx.roundRect(600,by,170,58,14);ctx.fill();ctx.restore();txt('CRO-CE 15107',618,by+26,'600 19px "Cormorant Garamond"',C.ink,'left',hr);txt('Cirurgiã-dentista',618,by+46,'500 12px Manrope',C.mute,'left',hr);
+ // faixa
+ ctx.fillStyle=C.choc;ctx.fillRect(0,640,CW,60);const mq='Clareamento  ✦  Endodontia  ✦  Prevenção  ✦  Restaurações  ✦  Cirurgias  ✦  Urgências  ✦  ';ctx.font='500 26px "Cormorant Garamond"';const mw=ctx.measureText(mq).width;for(let x=-((t*90)%mw);x<CW;x+=mw)txt(mq,x,680,'500 26px "Cormorant Garamond"',C.mustard);
+ // serviços
+ ctx.fillStyle=C.sand;ctx.fillRect(0,700,CW,460);txt('o que eu faço por você',60,770,'500 26px Caveat',C.gold);txt('Cuidado do primeiro check-up ao canal.',60,818,'600 40px "Cormorant Garamond"',C.ink);
+ [['clareamento','01','Clareamento','Resultado natural',.5,.55],['radiografia','02','Tratamento de canal','Quanto antes, melhor',.5,.5],['prevencao','03','Prevenção e limpeza','Prevenir é mais simples',.5,.3]].forEach(([im,n,ti,de,fx,fy],i)=>{const x=60+i*320,lift=(Math.floor(t/BEAT)%3===i)?-8*bp:0,y=860+lift;
+  ctx.save();ctx.shadowColor='rgba(59,42,32,.25)';ctx.shadowBlur=30;ctx.shadowOffsetY=14;ctx.fillStyle=C.cream;ctx.beginPath();ctx.roundRect(x,y,300,270,22);ctx.fill();ctx.restore();
+  ctx.save();ctx.beginPath();ctx.roundRect(x,y,300,270,22);ctx.clip();cover(IMG[im],x,y,300,150,fx,fy);txt(n,x+18,y+48,'600 40px "Cormorant Garamond"','#fff');ctx.restore();
+  txt(ti,x+22,y+196,'600 27px "Cormorant Garamond"',C.ink);txt(de,x+22,y+232,'500 14px Manrope',C.mute)});
+ // quiz
+ ctx.fillStyle=C.cream;ctx.fillRect(0,1160,CW,440);txt('seu corpo avisa',60,1230,'500 26px Caveat',C.gold);txt('Marque o que você sente.',60,1278,'600 42px "Cormorant Garamond"',C.ink);
+ const qs=[['Dor latejante ou persistente',25.9],['Sensibilidade que demora a passar',26.4],['Vontade de clarear os dentes',26.9]];let on=0;
+ qs.forEach(([l,ct],i)=>{const y=1320+i*72,c=P(t,ct,ct+.25);if(c>0)on++;ctx.fillStyle=c>0?mix('#ffffff',C.mustard,c):'#ffffff';ctx.strokeStyle=c>0?C.gold:'rgba(59,42,32,.15)';ctx.lineWidth=1.5;ctx.beginPath();ctx.roundRect(60,y,520,56,16);ctx.fill();ctx.stroke();
+  ctx.strokeStyle=C.gold;ctx.lineWidth=2;ctx.strokeRect(84,y+18,20,20);if(c>0){ctx.fillStyle=C.gold;ctx.fillRect(84,y+18,20,20*eOut(c));txt('✓',87,y+35,'700 17px Manrope','#fff')}txt(l,122,y+35,'500 17px Manrope',C.ink)});
+ const msg='Olá, Dra. Ana Beatriz! Estou com '+['dor latejante','sensibilidade','vontade de clarear'].slice(0,on).join(', ')+(on?'. ':'')+'Gostaria de agendar uma avaliação.';
+ ctx.save();ctx.shadowColor='rgba(0,0,0,.15)';ctx.shadowBlur=30;ctx.fillStyle='#e7f6de';ctx.beginPath();ctx.roundRect(640,1300,360,230,[22,22,22,4]);ctx.fill();ctx.restore();
+ txt('SUA MENSAGEM NO WHATSAPP',664,1334,'700 11px Manrope',C.mute,'left',1,'1.5px');wrap(msg,'500 17px Manrope',310).forEach((l,i)=>txt(l,664,1370+i*26,'500 17px Manrope',C.ink));txt('Enviar para a Dra.  →',664,1508,'700 16px Manrope',C.choc);
+ // endereço
+ ctx.fillStyle=C.sand;ctx.fillRect(0,1600,CW,760);txt('venha nos visitar',60,1700,'500 26px Caveat',C.gold);txt('No coração da',60,1760,'600 50px "Cormorant Garamond"',C.ink);txt('Aldeota.',60,1818,'italic 600 50px "Cormorant Garamond"',C.gold);
+ ['ENDEREÇO','Av. Desembargador Moreira, 2020','Torre Atlântica Business, sala 1204','Aldeota · Fortaleza, CE'].forEach((l,i)=>txt(l,62,1880+i*28+(i?6:0),i?'500 17px Manrope':'700 12px Manrope',i?C.ink:C.gold,'left',1,i?'0px':'2px'));
+ txt('Como chegar  ↗',62,2020,'700 17px Manrope',C.ink);
+ ctx.save();ctx.shadowColor='rgba(59,42,32,.3)';ctx.shadowBlur=40;ctx.shadowOffsetY=18;archPath(620,1660,340,450);ctx.fillStyle=C.sand;ctx.fill();ctx.restore();ctx.save();archPath(620,1660,340,450);ctx.clip();cover(IMG.consultorio,620,1660,340,450,.55,.3);ctx.drawImage(IMG.logoWhite,620+340-110,1660+450-90,96,74);ctx.restore();
+ ctx.save();ctx.shadowColor='rgba(59,42,32,.35)';ctx.shadowBlur=30;ctx.fillStyle='#e2cfb3';ctx.beginPath();ctx.roundRect(560,1990,170,170,18);ctx.fill();ctx.restore();ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(640,1990);ctx.lineTo(640,2160);ctx.moveTo(560,2050);ctx.lineTo(730,2050);ctx.stroke();ctx.strokeStyle=C.cream;ctx.lineWidth=6;ctx.strokeRect(560,1990,170,170);
+ ctx.fillStyle=C.choc;ctx.beginPath();ctx.arc(642,2066,11,0,7);ctx.fill();ctx.strokeStyle=rgba(C.gold,1-((t/BEAT)%1));ctx.lineWidth=2;ctx.beginPath();ctx.arc(642,2066,11+30*((t/BEAT)%1),0,7);ctx.stroke();
+ ctx.restore();
+ // menu fixo
+ ctx.fillStyle=sy>20?'rgba(246,238,227,.94)':'rgba(246,238,227,0)';ctx.fillRect(0,0,CW,64);txt('Dra. Ana Beatriz',30,41,'500 24px "Cormorant Garamond"',C.ink,'left',1,'1px');ctx.font='500 24px "Cormorant Garamond"';ctx.letterSpacing='1px';const nw=ctx.measureText('Dra. Ana Beatriz ').width;ctx.letterSpacing='0px';txt('Bomfim',30+nw,41,'600 24px "Cormorant Garamond"',C.gold,'left',1,'1px');txt('Agendar  →',CW-130,40,'700 15px Manrope',C.ink);
+ // botão do WhatsApp com pulso a cada meio segundo
+ const ph=(t/BEAT)%1;ctx.strokeStyle=rgba(C.wa,1-ph);ctx.lineWidth=3;ctx.beginPath();ctx.arc(990,654,32+26*ph,0,7);ctx.stroke();
+ const cp=bell(t,30.45,.08);ctx.save();ctx.translate(990,654);ctx.scale(1-cp*.12,1-cp*.12);ctx.fillStyle=C.wa;ctx.shadowColor='rgba(37,211,102,.6)';ctx.shadowBlur=20;ctx.beginPath();ctx.arc(0,0,32,0,7);ctx.fill();ctx.shadowBlur=0;
+ ctx.strokeStyle='#fff';ctx.lineWidth=3.5;ctx.beginPath();ctx.arc(0,-1,14,0,7);ctx.stroke();ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(-13,8);ctx.lineTo(-17,17);ctx.lineTo(-6,13);ctx.fill();ctx.restore();
+ const rp=P(t,30.45,31.2);if(rp>0&&rp<1){ctx.strokeStyle=rgba(C.wa,1-rp);ctx.lineWidth=4;ctx.beginPath();ctx.arc(990,654,32+120*eOut(rp),0,7);ctx.stroke()}
+ // cursor
+ const ca=vis(t,29.2,31.5,.3,.3);if(ca>0){const m=eIO(P(t,29.4,30.3)),x=lerp(640,992,m),y=lerp(330,660,m),s=1-bell(t,30.45,.07)*.2;ctx.save();ctx.globalAlpha*=ca;ctx.translate(x,y);ctx.scale(s*1.3,s*1.3);ctx.fillStyle='#fff';ctx.strokeStyle=C.ink;ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,24);ctx.lineTo(6,18);ctx.lineTo(10,27);ctx.lineTo(14,25);ctx.lineTo(10,16);ctx.lineTo(18,16);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore()}}
+
+// ---- o sistema dentro do navegador ----
+const NAVI=['Hoje','Agenda','Conversas','Pacientes','Automações'];
+const APPTS=[[0,0,1,'Carlos','Canal','ok'],[0,3,1,'Helena','Limpeza','ok'],[1,1,1.5,'João','Endodontia','ok'],[1,5,1,'Luiza','Avaliação','warn'],[2,0,1,'Tiago','Restauração','ok'],[2,6,1,'Rafael','Limpeza','warn'],[3,2,1,'Camila','Avaliação','ok'],[3,6,1.5,'Pedro','Odontopediatria','ok'],[4,1,1,'Beatriz','Limpeza','warn'],[4,4,1,'Helena','Retorno','ok'],[5,0,1,'Tiago','Avaliação','ok'],[5,2,1,'Carlos','Retorno','warn']];
+function drawApp(t){const CW=BW,VH=BH-TB;
+ ctx.fillStyle=C.cream;ctx.fillRect(0,0,CW,VH);
+ ctx.fillStyle=C.choc;ctx.fillRect(0,0,190,VH);ctx.drawImage(IMG.logoMus,34,20,122,94);
+ const act=t<38?1:t<43.5?2:3,prev=t<38?1:t<43.5?1:2,sw=t<38?1:eIO(P(t,t<43.5?38:43.5,(t<43.5?38:43.5)+.4)),hy=lerp(150+prev*52,150+act*52,sw);
+ ctx.fillStyle=C.mustard;ctx.beginPath();ctx.roundRect(14,hy-30,162,42,12);ctx.fill();
+ NAVI.forEach((n,i)=>txt(n,34,150+i*52,(i===act?'700':'500')+' 16px Manrope',i===act?C.choc:'rgba(246,238,227,.75)'));
+ ctx.fillStyle='rgba(255,255,255,.07)';ctx.beginPath();ctx.roundRect(14,VH-94,162,74,14);ctx.fill();txt('Plano Solo',28,VH-64,'700 13px Manrope',C.mustard);txt('1 profissional',28,VH-42,'500 12px Manrope','rgba(246,238,227,.6)');
+ const V=[[32.1,38.2,agenda],[38.0,43.8,chat],[43.5,49.2,odonto],[49.0,55.4,docsV]];
+ V.forEach(([a,b,fn])=>{const v=vis(t,a,b,.45,.45);if(v<=0)return;ctx.save();ctx.globalAlpha*=v;ctx.translate(0,(1-v)*24);fn(t);ctx.restore()})}
+function head(title,sub){txt(title,230,70,'600 42px "Cormorant Garamond"',C.ink);txt(sub,232,100,'500 15px Manrope',C.mute)}
+function agenda(t){head('Agenda','Semana de 22 a 27 de setembro');const x0=230,y0=128,w=800,h=560,cw=(w-56)/6,rh=(h-44)/10;
+ ctx.fillStyle=C.paper;ctx.strokeStyle='rgba(59,42,32,.1)';ctx.beginPath();ctx.roundRect(x0,y0,w,h,18);ctx.fill();ctx.stroke();
+ ['Seg 22','Ter 23','Qua 24','Qui 25','Sex 26','Sáb 27'].forEach((d,i)=>{const x=x0+56+i*cw;if(i===4){ctx.fillStyle=rgba(C.mustard,.45);ctx.fillRect(x,y0+1,cw,h-2)}txt(d,x+cw/2,y0+28,'700 14px Manrope',C.ink,'center')});
+ for(let r=0;r<10;r++){const y=y0+44+r*rh;ctx.fillStyle='rgba(59,42,32,.08)';ctx.fillRect(x0+50,y,w-50,1);txt(String(8+r).padStart(2,'0')+':00',x0+44,y+14,'500 11px Manrope',C.mute,'right')}
+ APPTS.forEach(([d,hr,du,n,pr,st],i)=>{const a0=33.0+i*.25,p=P(t,a0,a0+.45);if(p<=0)return;const e=eBack(p),x=x0+56+d*cw+4,y=y0+44+hr*rh+2-(1-e)*40;ctx.save();ctx.globalAlpha*=Math.min(1,p*2);ctx.fillStyle=st==='ok'?C.ok:C.warn;ctx.beginPath();ctx.roundRect(x,y,cw-8,du*rh-4,10);ctx.fill();txt(n,x+10,y+21,'700 13px Manrope','#fff');txt(pr,x+10,y+38,'500 11px Manrope','rgba(255,255,255,.85)');ctx.restore()});
+ const np=P(t,36.3,36.8);if(np>0){const e=eBack(np),x=x0+56+4*cw+4,y=y0+44+3*rh+2;ctx.save();ctx.translate(x+cw/2,y+rh/2);ctx.scale(e,e);ctx.translate(-(x+cw/2),-(y+rh/2));ctx.shadowColor=rgba(C.gold,.8);ctx.shadowBlur=24*(1+beatP(t));ctx.fillStyle=C.gold;ctx.beginPath();ctx.roundRect(x,y,cw-8,rh*1.5-4,10);ctx.fill();ctx.shadowBlur=0;txt('Mariana',x+10,y+21,'700 13px Manrope','#fff');txt('Clareamento',x+10,y+38,'500 11px Manrope','#fff');ctx.restore();sparkles(t,x+cw/2,y+30,36.4,5,70)}
+ toast(t,'✔ Agendado · lembrete programado para 24h antes',630,650,36.7,37.9)}
+function chat(t){head('Conversas','WhatsApp da clínica, dentro do sistema');const x0=230,y0=128,w=800,h=560;
+ ctx.fillStyle=C.paper;ctx.strokeStyle='rgba(59,42,32,.1)';ctx.beginPath();ctx.roundRect(x0,y0,w,h,18);ctx.fill();ctx.stroke();
+ const cf=P(t,41.5,41.8);
+ [['ML','Mariana Lopes',cf>0?'1':'Lembrete enviado',cf>0?['Confirmada',C.ok]:['Aguardando',C.warn]],['JV','João Victor','Obrigado, Dra.!',['Confirmada',C.ok]],['CE','Carlos Eduardo','Posso remarcar?',['Aguardando',C.warn]],['HC','Helena C.','Até amanhã!',['Confirmada',C.ok]],['PH','Pedro Henrique','Meu filho pode comer…',['Confirmada',C.ok]]].forEach(([a,n,m,[pl,pc]],i)=>{const y=y0+i*88;if(!i){ctx.fillStyle=rgba(C.sand,.9);ctx.fillRect(x0+1,y+1,258,88)}ctx.fillStyle=C.blush;ctx.beginPath();ctx.arc(x0+36,y+44,20,0,7);ctx.fill();txt(a,x0+36,y+50,'700 14px Manrope',C.wood,'center');txt(n,x0+66,y+38,'700 14px Manrope',C.ink);txt(m,x0+66,y+60,'500 12px Manrope',C.mute);
+  const pop=!i?1+.25*bell(t,41.6,.1):1;ctx.save();ctx.font='700 10px Manrope';const pw=ctx.measureText(pl).width+14;ctx.translate(x0+248-pw/2,y+22);ctx.scale(pop,pop);ctx.fillStyle=pc;ctx.beginPath();ctx.roundRect(-pw/2,-9,pw,18,9);ctx.fill();txt(pl,0,4,'700 10px Manrope','#fff','center');ctx.restore();ctx.fillStyle='rgba(59,42,32,.08)';ctx.fillRect(x0,y+88,260,1)});
+ ctx.fillStyle='rgba(59,42,32,.1)';ctx.fillRect(x0+260,y0,1,h);txt('Mariana Lopes',x0+290,y0+40,'700 16px Manrope',C.ink);txt('(85) 98812-3401',x0+290,y0+62,'500 13px Manrope',C.mute);ctx.fillStyle='rgba(59,42,32,.08)';ctx.fillRect(x0+260,y0+84,w-260,1);
+ ctx.fillStyle=rgba(C.cream,.7);ctx.fillRect(x0+261,y0+85,w-262,h-86);
+ const typing=(x,y,a0,a1,col)=>{const v=vis(t,a0,a1,.15,.1);if(v<=0)return;ctx.save();ctx.globalAlpha*=v;ctx.fillStyle=col;ctx.beginPath();ctx.roundRect(x,y,74,38,19);ctx.fill();for(let i=0;i<3;i++){ctx.fillStyle=C.mute;ctx.beginPath();ctx.arc(x+20+i*17,y+19-Math.max(0,Math.sin(t*10-i))*5,4.5,0,7);ctx.fill()}ctx.restore()};
+ const bub=(tx,right,a0,col,fg,sub)=>{const p=eOut(P(t,a0,a0+.35));if(p<=0)return;const ls=wrap(tx,'500 16px Manrope',330),bw=Math.max(...ls.map(l=>{ctx.font='500 16px Manrope';return ctx.measureText(l).width}))+36,bh=ls.length*24+42,x=right?x0+w-24-bw:x0+284;const y=bubY[a0];ctx.save();ctx.globalAlpha*=p;ctx.translate(x+(right?bw:0),y+bh);ctx.scale(lerp(.7,1,p),lerp(.7,1,p));ctx.translate(-(x+(right?bw:0)),-(y+bh));ctx.fillStyle=col;ctx.beginPath();ctx.roundRect(x,y,bw,bh,right?[18,18,4,18]:[18,18,18,4]);ctx.fill();ls.forEach((l,i)=>txt(l,x+18,y+28+i*24,'500 16px Manrope',fg));txt(sub,x+bw-14,y+bh-12,'500 11px Manrope',fg,'right',.6);ctx.restore()};
+ const bubY={39.1:y0+130,40.8:y0+330};
+ typing(x0+w-100,y0+130,38.5,39.1,C.mustard);bub('Olá, Mariana! Lembrete da sua consulta amanhã às 9h com a Dra. Ana Beatriz. Responda 1 para confirmar ou 2 para remarcar.',true,39.1,C.mustard,C.choc,'automático · 09:00');
+ typing(x0+284,y0+330,40.2,40.8,'#fff');bub('1',false,40.8,'#fff',C.ink,'09:02');
+ toast(t,'✔ Mariana confirmou pelo WhatsApp',x0+530,y0+500,41.35,43.2)}
+const UP=[18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28],LO=[48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38];
+function tooth(n,x,y,up,marks,a,sel){const s=34,m=s*.3;ctx.save();ctx.globalAlpha*=a;
+ ctx.fillStyle='#f3ead9';ctx.strokeStyle='rgba(59,42,32,.25)';ctx.lineWidth=1;const ry=up?y-16:y+s+2;ctx.beginPath();ctx.roundRect(x+s/2-5,ry,10,14,5);ctx.fill();ctx.stroke();
+ if(marks.canal){ctx.strokeStyle=marks.canal;ctx.lineWidth=4;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x+s/2,ry+2);ctx.lineTo(x+s/2,ry+12);ctx.stroke()}
+ if(marks.peri){ctx.strokeStyle=marks.peri;ctx.lineWidth=2;ctx.beginPath();ctx.arc(x+s/2,up?ry:ry+14,5,0,7);ctx.stroke()}
+ const F={top:[[0,0],[s,0],[s-m,m],[m,m]],bottom:[[0,s],[s,s],[s-m,s-m],[m,s-m]],left:[[0,0],[m,m],[m,s-m],[0,s]],right:[[s,0],[s-m,m],[s-m,s-m],[s,s]],center:[[m,m],[s-m,m],[s-m,s-m],[m,s-m]]};
+ for(const k in F){ctx.beginPath();F[k].forEach(([px,py],i)=>ctx[i?'lineTo':'moveTo'](x+px,y+py));ctx.closePath();ctx.fillStyle=marks[k]||'#fff';ctx.fill();ctx.strokeStyle=sel?C.gold:'rgba(59,42,32,.4)';ctx.lineWidth=sel?2:1;ctx.stroke()}
+ if(marks.x){ctx.strokeStyle=marks.x;ctx.lineWidth=3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x+3,y+3);ctx.lineTo(x+s-3,y+s-3);ctx.moveTo(x+s-3,y+3);ctx.lineTo(x+3,y+s-3);ctx.stroke()}
+ txt(String(n),x+s/2,up?y-24:y+s+32,'700 12px Manrope',sel?C.gold:C.mute,'center');ctx.restore()}
+function odonto(t){const x0=230;
+ ctx.fillStyle=C.paper;ctx.strokeStyle='rgba(59,42,32,.1)';ctx.beginPath();ctx.roundRect(x0,26,800,104,18);ctx.fill();ctx.stroke();ctx.fillStyle=C.blush;ctx.beginPath();ctx.arc(x0+52,78,30,0,7);ctx.fill();txt('JV',x0+52,85,'700 18px Manrope',C.wood,'center');
+ txt('João Victor Sales',x0+100,72,'600 32px "Cormorant Garamond"',C.ink);txt('26 anos · Prontuário nº 1003',x0+102,98,'500 13px Manrope',C.mute);
+ ['Resumo','Anamnese','Odontograma','Plano','Evolução','Endodontia','Documentos'].forEach((n,i)=>{const x=x0+10+i*112;txt(n,x,170,(i===2?'700':'500')+' 14px Manrope',i===2?C.ink:C.mute);if(i===2){ctx.fillStyle=C.gold;ctx.fillRect(x,180,98,2)}});
+ ctx.fillStyle=C.paper;ctx.strokeStyle='rgba(59,42,32,.1)';ctx.beginPath();ctx.roundRect(x0,198,800,490,18);ctx.fill();ctx.stroke();
+ const done=eIO(P(t,46.2,46.7)),r11=mix(C.red,C.blue,done);
+ const M={18:{x:C.blue},28:{x:C.blue},16:{center:C.blue},36:{center:C.blue,left:C.blue},46:{center:C.red},21:{right:C.red},11:{bottom:r11,canal:r11,peri:done<1?rgba(C.red,1-done):null},38:{x:C.red}};
+ const sx=x0+36,gap=46,mid=18;
+ [[UP,330,true],[LO,510,false]].forEach(([row,y,up],ri)=>row.forEach((n,i)=>{const x=sx+i*gap+(i>=8?mid:0),a=eOut(P(t,43.9+(ri*16+i)*.02,44.3+(ri*16+i)*.02));tooth(n,x,y,up,M[n]||{},a,n===11)}));
+ ctx.strokeStyle='rgba(59,42,32,.18)';ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(sx+8*gap+mid/2-6,250);ctx.lineTo(sx+8*gap+mid/2-6,600);ctx.moveTo(x0+20,440);ctx.lineTo(x0+780,440);ctx.stroke();ctx.setLineDash([]);
+ const rp=P(t,46.2,46.9);if(rp>0&&rp<1){const x=sx+7*gap+17,y=347;ctx.strokeStyle=rgba(C.blue,1-rp);ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,20+70*eOut(rp),0,7);ctx.stroke()}
+ sparkles(t,sx+7*gap+17,330,46.25,5,60);
+ ctx.fillStyle=C.red;ctx.fillRect(x0+30,650,12,12);txt('A realizar / patologia',x0+50,661,'500 13px Manrope',C.mute);ctx.fillStyle=C.blue;ctx.fillRect(x0+230,650,12,12);txt('Realizado',x0+250,661,'500 13px Manrope',C.mute);
+ toast(t,'✔ Concluído e registrado na evolução',x0+560,655,46.6,48.6)}
+function docsV(t){head('Documentos','Prontuário · João Victor Sales');const x0=230;
+ [['Consentimento LGPD','Assinado'],['TCLE · tratamento endodôntico','Assinado'],['Autorização de uso de imagem','Assinado']].forEach(([n,s],i)=>{const y=140+i*70;ctx.fillStyle=C.paper;ctx.strokeStyle='rgba(59,42,32,.1)';ctx.beginPath();ctx.roundRect(x0,y,800,56,14);ctx.fill();ctx.stroke();txt(n,x0+24,y+35,'500 16px Manrope',C.ink);ctx.fillStyle=C.ok;ctx.beginPath();ctx.roundRect(x0+690,y+16,88,24,12);ctx.fill();txt(s,x0+734,y+33,'700 12px Manrope','#fff','center')});
+ txt('EMITIR',x0,400,'700 12px Manrope',C.mute,'left',1,'2px');
+ ['Receituário','Atestado','Declaração'].forEach((n,i)=>{const x=x0+i*170,pr=i===0?bell(t,49.45,.12):0;ctx.save();ctx.translate(x+75,440);ctx.scale(1-pr*.08,1-pr*.08);ctx.fillStyle=i===0?C.choc:C.paper;ctx.strokeStyle='rgba(59,42,32,.2)';ctx.beginPath();ctx.roundRect(-75,-22,150,44,22);ctx.fill();ctx.stroke();txt(n,0,6,'700 15px Manrope',i===0?C.cream:C.ink,'center');ctx.restore()})}
+
+// ---- a receita que sai do sistema (por cima do navegador) ----
+function paper(t){const p=eOut(P(t,49.6,50.5)),q=eIO(P(t,54.1,54.9));if(p<=0||q>=1)return;
+ const w=440,h=622,cx=lerp(BX+320,1010,p),cy=lerp(BY+500,560,p)-q*120,s=lerp(.25,1,p);
+ ctx.save();ctx.globalAlpha*=Math.min(1,p*1.6)*(1-q);ctx.translate(cx,cy);ctx.rotate(lerp(.2,-.045,p));ctx.scale(s,s);ctx.translate(-w/2,-h/2);
+ ctx.shadowColor='rgba(40,25,15,.4)';ctx.shadowBlur=60;ctx.shadowOffsetY=30;ctx.fillStyle='#fffdf8';ctx.fillRect(0,0,w,h);ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+ ctx.drawImage(IMG.logoGold,30,24,78,60);txt('Dra. Ana Beatriz Bomfim',118,54,'600 23px "Cormorant Garamond"',C.ink);txt('CIRURGIÃ-DENTISTA · CRO-CE 15107',119,74,'600 9px Manrope',C.mute,'left',1,'1.5px');
+ ctx.fillStyle=C.gold;ctx.fillRect(30,96,w-60,1.5);txt('Receita simples',w/2,138,'600 25px "Cormorant Garamond"',C.ink,'center');
+ txt('Paciente: João Victor Sales',32,178,'600 13px Manrope',C.ink);
+ const L=['Uso oral','','1. Ibuprofeno 600 mg ............ 10 comp.','    Tomar 1 comprimido de 12 em 12 horas,','    por 5 dias, após as refeições.'];
+ const chars=Math.floor(P(t,50.3,51.4)*L.join('').length);let used=0;L.forEach((l,i)=>{const n=clamp(chars-used,0,l.length);used+=l.length;txt(l.slice(0,n),32,218+i*24,'500 13px Manrope',C.ink)});
+ // assinatura desenhada à mão
+ const sp=P(t,51.6,52.6);if(sp>0){ctx.save();ctx.strokeStyle='#23365e';ctx.lineWidth=2.2;ctx.lineCap=ctx.lineJoin='round';ctx.beginPath();const n=Math.floor(sp*120);for(let i=0;i<=n;i++){const u=i/120,x=130+u*180,y=470+Math.sin(u*28)*14*Math.sin(u*Math.PI)-u*12+Math.cos(u*9)*5;ctx[i?'lineTo':'moveTo'](x,y)}ctx.stroke();ctx.restore()}
+ ctx.fillStyle=C.ink;ctx.fillRect(110,492,220,1);txt('Dra. Ana Beatriz Bomfim',w/2,512,'600 12px Manrope',C.ink,'center');txt('Cirurgiã-Dentista · CRO-CE 15107',w/2,529,'500 11px Manrope',C.mute,'center');
+ txt('Fortaleza, 26 de setembro de 2026',w/2,556,'500 11px Manrope',C.mute,'center');ctx.fillStyle=C.mustard;ctx.fillRect(30,580,w-60,1);txt('Av. Desembargador Moreira, 2020, sala 1204 · Aldeota, Fortaleza/CE',w/2,600,'500 9px Manrope',C.mute,'center');
+ const st=P(t,52.9,53.15);if(st>0){const e=lerp(1.6,1,eOut(st));ctx.save();ctx.translate(350,430);ctx.rotate(-.25);ctx.scale(e,e);ctx.globalAlpha*=.85*Math.min(1,st*3);ctx.strokeStyle=C.gold;ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(0,0,44,0,7);ctx.stroke();ctx.lineWidth=1;ctx.beginPath();ctx.arc(0,0,37,0,7);ctx.stroke();txt('Dra. Ana B.',0,-4,'600 12px "Cormorant Garamond"',C.gold,'center');txt('CRO-CE 15107',0,12,'700 8px Manrope',C.gold,'center');ctx.restore()}
+ ctx.restore()}
+
+// ---- textos à esquerda do navegador ----
+function sideTexts(t){const S=[
+ [19.1,23.0,'a sua vitrine','Um site com a sua cara.',['sua'],'Feito a partir do seu Instagram, das suas fotos e do seu jeito de atender.'],
+ [23.3,27.4,'',"Do Instagram à cadeira em 1 toque.",['toque.'],'O paciente conta o que sente e a mensagem chega pronta no seu WhatsApp.'],
+ [27.7,31.3,'','No Google, no celular e no WhatsApp.',['WhatsApp.'],'Endereço, horários e botão de contato sempre à mão.'],
+ [32.6,37.9,'o sistema','Sua agenda, organizada.',['organizada.'],'Consultas, encaixes e horários livres num só lugar.'],
+ [38.3,43.3,'','Pacientes que se confirmam sozinhos.',['sozinhos.'],'Lembretes automáticos pelo WhatsApp, menos faltas.'],
+ [43.8,48.9,'','Prontuário e odontograma completos.',['completos.'],'Anamnese, evolução, endodontia e clareamento.'],
+ [49.3,54.1,'','Receitas e atestados prontos para assinar.',['assinar.'],'Em papel timbrado, com a sua marca.']];
+ S.forEach(([a,b,sc,h,hi,cap])=>{if(t<a-.1||t>b+1.2)return;if(sc)words(t,{text:sc,x:180,y:330,t0:a,t1:b,font:'500 {s}px Caveat',size:52,color:C.gold});
+  const n=words(t,{text:h,x:180,y:430,t0:a+.15,t1:b,size:72,maxW:470,hi});
+  const cy=430+n*72*1.12+30;wrap(cap,'500 22px Manrope',440).forEach((l,i)=>txt(l,182,cy+i*32,'500 22px Manrope',C.wood,'left',vis(t,a+.9,b+.3,.5,.4)))})}
+
+// ================= CENA 6 · FINAL =================
+const LOGOC=document.createElement('canvas');LOGOC.width=880;LOGOC.height=677;const lctx=LOGOC.getContext('2d');
+function scene6(t){if(t<55.2)return;
+ const a=eOut(P(t,55.6,56.5));
+ lctx.clearRect(0,0,880,677);lctx.globalCompositeOperation='source-over';lctx.drawImage(IMG.logoMus,0,0,880,677);
+ const sp=P(t,56.3,57.3);if(sp>0&&sp<1){lctx.globalCompositeOperation='source-atop';const x=lerp(-300,1180,sp),g=lctx.createLinearGradient(x-160,0,x+160,0);g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,.95)');g.addColorStop(1,'rgba(255,255,255,0)');lctx.fillStyle=g;lctx.fillRect(0,0,880,677)}
+ const s=lerp(1.05,1,a);ctx.save();ctx.globalAlpha*=a;ctx.shadowColor=rgba(C.gold,.55);ctx.shadowBlur=40;ctx.translate(W/2,LY+169);ctx.scale(s,s);ctx.drawImage(LOGOC,-LW/2,-169,LW,338.5);ctx.restore();
+ words(t,{text:'SITE + SISTEMA, FEITOS PARA VOCÊ.',x:W/2,y:560,t0:56.0,font:'600 {s}px Manrope',size:30,color:C.cream,align:'center',st:.07});
+ words(t,{text:'Vamos começar?',x:W/2,y:690,t0:56.35,size:112,color:C.cream,align:'center',hi:['começar?']});
+ const c=eOut(P(t,56.8,57.4));txt('UMA PROPOSTA DA',W/2,812,'700 16px Manrope',C.cream,'center',c*.7,'5px');
+ ctx.save();ctx.globalAlpha*=c;ctx.drawImage(IMG.aura,W/2-80,822,160,160);ctx.restore()}
+
+// ================= RENDER =================
+function render(t){t=clamp(t,0,DUR);
+ ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+ const k=camera(t);ctx.setTransform(k,0,0,k,W/2*(1-k),H/2*(1-k));
+ bg(t);scene1(t);scene2(t);scene3(t);sideTexts(t);browser(t);paper(t);liquid(t);goldLine(t);scene6(t);
+ sweep(t,3.7,.9);sweep(t,13.85,.9);sweep(t,54.35,1.1);
+ ctx.setTransform(1,0,0,1,0,0);
+ const v=ctx.createRadialGradient(W/2,H/2,H*.45,W/2,H/2,H*1.05);v.addColorStop(0,'rgba(30,20,14,0)');v.addColorStop(1,'rgba(30,20,14,.28)');ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+ ctx.save();ctx.globalAlpha=.055;ctx.globalCompositeOperation='overlay';ctx.fillStyle=GRAIN[Math.floor(t*FPS)%3];ctx.translate((t*997)%400,(t*631)%400);ctx.fillRect(-400,-400,W+400,H+400);ctx.restore()}
+
+// ================= SOM (Web Audio) =================
+function buildAudio(ac,dest,T0){
+ const R=rng(7),T=x=>T0+x,sr=ac.sampleRate;
+ const nb=ac.createBuffer(1,sr*2,sr);{const d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=R()*2-1}
+ const master=ac.createGain();master.gain.setValueAtTime(.9,T(0));master.gain.setValueAtTime(.9,T(59.1));master.gain.linearRampToValueAtTime(0,T(60));
+ const comp=ac.createDynamicsCompressor();comp.threshold.value=-16;comp.knee.value=10;comp.ratio.value=3.5;comp.attack.value=.008;comp.release.value=.2;master.connect(comp);comp.connect(dest);
+ const ir=ac.createBuffer(2,sr*3,sr);for(let c=0;c<2;c++){const d=ir.getChannelData(c);for(let i=0;i<d.length;i++)d[i]=(R()*2-1)*Math.pow(1-i/d.length,3.4)}
+ const rev=ac.createConvolver();rev.buffer=ir;const revG=ac.createGain();revG.gain.value=.32;rev.connect(revG);revG.connect(master);
+ const send=(node,v)=>{const g=ac.createGain();g.gain.value=v;node.connect(g);g.connect(rev)};
+ // barramento dos acordes: filtro + "respiração" no bumbo
+ const pad=ac.createGain(),padF=ac.createBiquadFilter(),duck=ac.createGain();padF.type='lowpass';padF.Q.value=.6;pad.connect(padF);padF.connect(duck);duck.connect(master);send(duck,.45);
+ pad.gain.setValueAtTime(0,T(0));pad.gain.linearRampToValueAtTime(.55,T(1.2));pad.gain.setValueAtTime(.55,T(55.2));pad.gain.linearRampToValueAtTime(0,T(55.9));
+ const pf=padF.frequency;pf.setValueAtTime(420,T(0));pf.exponentialRampToValueAtTime(1900,T(4));pf.setValueAtTime(1900,T(14));pf.exponentialRampToValueAtTime(700,T(14.8));pf.setValueAtTime(700,T(17.2));pf.exponentialRampToValueAtTime(2600,T(18.2));pf.setValueAtTime(2600,T(54.2));pf.exponentialRampToValueAtTime(900,T(55.6));
+ const mtof=m=>440*Math.pow(2,(m-69)/12);
+ function ep(t,m,dur,v,bus){[['triangle',0,.6],['sine',7,.35],['sine',-7,.35]].forEach(([ty,dt,w])=>{const o=ac.createOscillator(),g=ac.createGain();o.type=ty;o.frequency.value=mtof(m);o.detune.value=dt;const vv=v*w;g.gain.setValueAtTime(0,T(t));g.gain.linearRampToValueAtTime(vv,T(t)+.015);g.gain.exponentialRampToValueAtTime(vv*.45,T(t)+.55);g.gain.setTargetAtTime(.0001,T(t+dur),.2);o.connect(g);g.connect(bus);o.start(T(t));o.stop(T(t+dur)+1.2)});
+  const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=mtof(m)*4;g.gain.setValueAtTime(v*.07,T(t));g.gain.exponentialRampToValueAtTime(.0001,T(t)+.3);o.connect(g);g.connect(bus);o.start(T(t));o.stop(T(t)+.35)}
+ function tone(t,f,dur,v,type='sine',to=master,rv=.3,atk=.004){const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(0,T(t));g.gain.linearRampToValueAtTime(v,T(t)+atk);g.gain.exponentialRampToValueAtTime(.0001,T(t)+dur);o.connect(g);g.connect(to);if(rv)send(g,rv);o.start(T(t));o.stop(T(t)+dur+.05)}
+ function noise(t,dur,v,type,f,q=1,to=master,rv=0,atk=.001){const s=ac.createBufferSource(),fl=ac.createBiquadFilter(),g=ac.createGain();s.buffer=nb;fl.type=type;fl.frequency.value=f;fl.Q.value=q;g.gain.setValueAtTime(0,T(t));g.gain.linearRampToValueAtTime(v,T(t)+atk);g.gain.exponentialRampToValueAtTime(.0001,T(t)+dur);s.connect(fl);fl.connect(g);g.connect(to);if(rv)send(g,rv);s.start(T(t),R()*1.5);s.stop(T(t)+dur+.05)}
+ function kick(t,v=1){const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(130,T(t));o.frequency.exponentialRampToValueAtTime(42,T(t)+.13);g.gain.setValueAtTime(v*.95,T(t));g.gain.exponentialRampToValueAtTime(.001,T(t)+.45);o.connect(g);g.connect(master);o.start(T(t));o.stop(T(t)+.5);duck.gain.setValueAtTime(.5,T(t));duck.gain.linearRampToValueAtTime(1,T(t)+.3)}
+ const snare=(t,v=1)=>{noise(t,.22,.32*v,'bandpass',1800,.8,master,.25);tone(t,190,.12,.2*v,'triangle',master,0)};
+ const hat=(t,v=1)=>noise(t,.05,.08*v,'highpass',7800,.7);
+ function whoosh(t,d,v=.45,f0=300,f1=4200){const s=ac.createBufferSource(),fl=ac.createBiquadFilter(),g=ac.createGain(),p=ac.createStereoPanner();s.buffer=nb;s.loop=true;fl.type='bandpass';fl.Q.value=1.3;fl.frequency.setValueAtTime(f0,T(t));fl.frequency.exponentialRampToValueAtTime(f1,T(t+d*.7));fl.frequency.exponentialRampToValueAtTime(f0*1.6,T(t+d));g.gain.setValueAtTime(.0001,T(t));g.gain.exponentialRampToValueAtTime(v,T(t+d*.6));g.gain.exponentialRampToValueAtTime(.0001,T(t+d));p.pan.setValueAtTime(-.6,T(t));p.pan.linearRampToValueAtTime(.6,T(t+d));s.connect(fl);fl.connect(g);g.connect(p);p.connect(master);send(g,.4);s.start(T(t));s.stop(T(t+d)+.1)}
+ function riser(a,b){const s=ac.createBufferSource(),fl=ac.createBiquadFilter(),g=ac.createGain();s.buffer=nb;s.loop=true;fl.type='highpass';fl.frequency.setValueAtTime(400,T(a));fl.frequency.exponentialRampToValueAtTime(6000,T(b));g.gain.setValueAtTime(.0001,T(a));g.gain.exponentialRampToValueAtTime(.22,T(b));g.gain.linearRampToValueAtTime(.0001,T(b)+.05);s.connect(fl);fl.connect(g);g.connect(master);send(g,.3);s.start(T(a));s.stop(T(b)+.1);
+  const o=ac.createOscillator(),og=ac.createGain();o.type='sine';o.frequency.setValueAtTime(180,T(a));o.frequency.exponentialRampToValueAtTime(720,T(b));og.gain.setValueAtTime(.0001,T(a));og.gain.exponentialRampToValueAtTime(.08,T(b));og.gain.linearRampToValueAtTime(.0001,T(b)+.05);o.connect(og);og.connect(master);o.start(T(a));o.stop(T(b)+.1)}
+ function impact(t,v=1){const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(90,T(t));o.frequency.exponentialRampToValueAtTime(38,T(t)+.5);g.gain.setValueAtTime(v*.9,T(t));g.gain.exponentialRampToValueAtTime(.001,T(t)+1.1);o.connect(g);g.connect(master);send(g,.3);o.start(T(t));o.stop(T(t)+1.2);noise(t,.7,.3*v,'lowpass',500,.7,master,.5)}
+ const sparkle=t=>[2093,2637,3136,4186].forEach((f,i)=>tone(t+i*.05,f,.55,.05,'sine',master,.9));
+ const tick=(t,v=1)=>{tone(t,1700,.05,.07*v,'triangle',master,.1);noise(t,.02,.05*v,'highpass',5000)};
+ const click=t=>{noise(t,.03,.25,'highpass',3000);tone(t,900,.05,.15,'sine',master,0)};
+ const ding=t=>{tone(t,1318.5,.6,.11,'sine',master,.5);tone(t+.09,1760,.7,.11,'sine',master,.5)};
+ const chime=t=>[1046.5,1318.5,1568].forEach((f,i)=>tone(t+i*.08,f,.8,.08,'sine',master,.6));
+ function bloop(t){const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(900,T(t));o.frequency.exponentialRampToValueAtTime(160,T(t)+.35);g.gain.setValueAtTime(.25,T(t));g.gain.exponentialRampToValueAtTime(.001,T(t)+.4);o.connect(g);g.connect(master);send(g,.5);o.start(T(t));o.stop(T(t)+.45)}
+ // ---- música: lo-fi a 120 BPM (uma batida a cada meio segundo) ----
+ const PROG=[[53,57,60,64,41],[52,55,59,62,40],[50,53,57,60,38],[48,52,55,59,36]];
+ const drums=t=>(t>=4&&t<14)||(t>=18&&t<54.4),penta=[72,74,76,79,81,84];
+ for(let bar=0;bar<28;bar++){const t0=bar*2,ch=PROG[bar%4];
+  ch.slice(0,4).forEach(m=>{ep(t0,m,1.75,.13,pad);if(!(t0>=14&&t0<18))ep(t0+1.25,m,.6,.07,pad)});
+  if(drums(t0)){tone(t0,mtof(ch[4]),.9,.28,'sine',master,0,.01);tone(t0+1,mtof(ch[4]),.45,.2,'sine',master,0,.01);tone(t0+1.5,mtof(ch[4]+12),.3,.14,'triangle',master,0,.01)}
+  for(let s=0;s<8;s++){const t=t0+s*.25+(s%2?.035:0);
+   if(drums(t)){if(s===0||s===5||(s===3&&bar%2))kick(t,s===0?1:.75);if(s===2||s===6)snare(t);hat(t,s%2?.6:1)}
+   else if(t>=2&&t<55.2)hat(t,t>=14&&t<18?.45:.7);
+   if(t>=18&&t<54&&(s===1||s===3||s===4||s===6)&&R()<.5)tone(t,mtof(penta[Math.floor(R()*penta.length)]),.35,.07,'triangle',master,.5)}}
+ for(let t=17.25;t<18;t+=.125)snare(t,.25+(t-17.25));
+ // final: acorde aberto e brilho
+ [41,53,57,60,64,67,69].forEach(m=>ep(55.8,m,3.6,.12,master));[84,88,91,96].forEach((m,i)=>tone(56.3+i*.12,mtof(m),1.4,.05,'sine',master,.9));
+ // ---- efeitos no ritmo da imagem ----
+ whoosh(.1,1.3,.35,200,3000);[[3.7,.9],[13.8,.9],[17.6,1],[31.3,1],[54.3,1.3]].forEach(([t,d])=>whoosh(t,d));whoosh(16,1.1,.5,150,2000);bloop(16.05);
+ [[4.1,1],[18.2,1],[32.2,.55],[55.8,1.1]].forEach(([t,v])=>impact(t,v));riser(16.4,18.15);riser(53.9,55.75);
+ [1.6,5.3,12.4,17.3,36.4,46.2,56.4].forEach(sparkle);
+ [7.9,8.3,8.7,9.1,25.9,26.4,26.9].forEach(t=>tick(t));for(let t=11;t<12.35;t+=.12)tick(t,.5);
+ for(let t=18.5;t<19.5;t+=.07)noise(t,.025,.05,'bandpass',3500,1.5);for(let t=32.2;t<33;t+=.07)noise(t,.025,.05,'bandpass',3500,1.5);
+ for(let i=0;i<12;i++)tick(33+i*.25,.6);click(30.45);ding(39.1);ding(40.8);chime(41.35);tick(41.6);chime(36.7);chime(46.6);
+ whoosh(49.5,.7,.35,200,1500);for(let t=51.6;t<52.6;t+=.03)noise(t,.04,.04+R()*.06,'bandpass',2500+R()*1500,2);impact(52.9,.35);
+ for(let i=0;i<260;i++)noise(R()*59.5,.008,.012+R()*.03,'highpass',2000)}
+
+// ================= REPRODUÇÃO, GRAVAÇÃO E EXPORTAÇÃO =================
+const $=id=>document.getElementById(id),st=m=>$('st').textContent=m;
+let running=false;
+function play(record){return new Promise(async res=>{running=true;const ac=new AudioContext({sampleRate:48000}),out=ac.createGain();out.connect(ac.destination);
+ let rec,chunks=[],mime='';
+ if(record){const md=ac.createMediaStreamDestination();out.connect(md);const stream=new MediaStream([...cv.captureStream(FPS).getVideoTracks(),...md.stream.getAudioTracks()]);
+  mime=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm'].find(m=>MediaRecorder.isTypeSupported(m));
+  rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:16e6,audioBitsPerSecond:256e3});rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);rec.start(500)}
+ const T0=ac.currentTime+.25;buildAudio(ac,out,T0);
+ (function loop(){const t=ac.currentTime-T0;render(Math.max(0,t));$('seek').value=t;if(record)st(`Gravando… ${Math.max(0,Math.floor(t))}s de 60s. Não troque de aba.`);
+  if(t<DUR+.2)requestAnimationFrame(loop);else{running=false;if(!rec){ac.close();st('Fim. Use o botão "Baixar MP4" para salvar o vídeo.');return res()}
+   rec.onstop=()=>{const b=new Blob(chunks,{type:mime}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='Proposta-AURA-Dra-Ana-Beatriz.'+(mime.includes('mp4')?'mp4':'webm');a.click();ac.close();st(mime.includes('mp4')?'Pronto! O MP4 foi baixado.':'Pronto! Este Chrome não grava MP4, então o vídeo saiu em WebM.');res()};rec.stop()}})()})}
+ready.then(()=>{render(0);st('Pronto. Clique em "Baixar MP4" e espere 60 segundos, sem trocar de aba.');$('play').disabled=$('rec').disabled=false});
+$('seek').oninput=e=>{if(!running)render(+e.target.value)};
+$('play').onclick=async()=>{if(running)return;$('play').disabled=$('rec').disabled=true;st('Tocando…');await play(false);$('play').disabled=$('rec').disabled=false};
+$('rec').onclick=async()=>{if(running)return;$('play').disabled=$('rec').disabled=true;await play(true);$('play').disabled=$('rec').disabled=false};
+// usado pelo exportador automático (quadro a quadro)
+window.__ready=ready;window.__frame=i=>{render(i/FPS);return cv.toDataURL('image/jpeg',.95)};
+window.__wav=async()=>{const oc=new OfflineAudioContext(2,48000*DUR,48000);buildAudio(oc,oc.destination,0);const b=await oc.startRendering(),n=b.length,dv=new DataView(new ArrayBuffer(44+n*4)),w=(o,s)=>[...s].forEach((c,i)=>dv.setUint8(o+i,c.charCodeAt(0)));
+ w(0,'RIFF');dv.setUint32(4,36+n*4,true);w(8,'WAVEfmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,2,true);dv.setUint32(24,48000,true);dv.setUint32(28,192000,true);dv.setUint16(32,4,true);dv.setUint16(34,16,true);w(36,'data');dv.setUint32(40,n*4,true);
+ const L=b.getChannelData(0),Rr=b.getChannelData(1);for(let i=0;i<n;i++){dv.setInt16(44+i*4,clamp(L[i],-1,1)*32767,true);dv.setInt16(46+i*4,clamp(Rr[i],-1,1)*32767,true)}
+ const u=new Uint8Array(dv.buffer);let s='';for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
+</script>
+</body>
+</html>
