@@ -4,8 +4,8 @@ src = pathlib.Path(__file__).parent
 root = src.parent.parent
 b64 = lambda p: base64.b64encode(pathlib.Path(p).read_bytes()).decode()
 rep = {
-    'F_CORM': b64(src/'fonts/cormorant.woff2'), 'F_CORMI': b64(src/'fonts/cormorant-italic.woff2'),
-    'F_MAN': b64(src/'fonts/manrope.woff2'), 'F_CAV': b64(src/'fonts/caveat.woff2'),
+    'F_ALT3': b64(src/'fonts/alt300.woff2'), 'F_ALT4': b64(src/'fonts/alt400.woff2'),
+    'F_MONT': b64(src/'fonts/mont.woff2'),
     'I_AURA': 'data:image/png;base64,' + b64(src/'aura.png'),
 }
 for k in ['sobre', 'cirurgia', 'consultorio', 'hero', 'clareamento', 'radiografia', 'prevencao']:
